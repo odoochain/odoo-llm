@@ -3,7 +3,7 @@ anthropic
 emoji
 langchain_core
 ollama
-openai
+openai==1.65.1
 pydantic
 replicate
 requests
