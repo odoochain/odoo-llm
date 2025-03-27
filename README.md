@@ -18,8 +18,9 @@ This repository provides a comprehensive framework for integrating Large Languag
 | Module          | Description                                                          |
 |-----------------|----------------------------------------------------------------------|
 | `llm`           | Base module with core functionality and provider framework           |
-| `llm_agent`     | Adds tool functionality that allows LLMs to perform actions in Odoo  |
+| `llm_tool`     | Adds tool functionality that allows LLMs to perform actions in Odoo  |
 | `llm_thread`    | Chat threads and conversation management                             |
+| `llm_agent`     | Agent management for specialized AI assistants with custom tools     |
 | `llm_openai`    | OpenAI (GPT) provider integration                                    |
 | `llm_anthropic` | Anthropic (Claude) provider integration                              |
 | `llm_ollama`    | Ollama provider for local model deployment                           |
@@ -49,7 +50,7 @@ After installation:
 3. Set up models for the provider (can be done automatically using "Fetch Models")
 4. Grant appropriate access rights to users
 
-## 🔄 LLM Agents: Building AI-Driven ERP
+## 🔄 LLM Tools: Building AI-Driven ERP
 
 We're seeing tremendous potential by integrating reasoning/agent models like ChatGPT, Claude, and others into Odoo. These models can query the Odoo database via functions and interact with server actions for data manipulation.
 

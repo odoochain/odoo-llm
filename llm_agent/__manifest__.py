@@ -1,57 +1,51 @@
 {
     "name": "LLM Agent",
-    "version": "16.0.1.0.0",
-    "category": "Technical",
-    "summary": "Advanced tools for LLM models to interact with Odoo, including customizable schemas and descriptions",
-    "description": """
-        Automate Your Odoo Database with AI Agents & Chat AI | ChatGPT, Grok, Anthropic, DeepSeek
-
-        Boost your Odoo database automation with AI-powered agents using ChatGPT, Grok, Anthropic, and DeepSeek. Streamline
-        workflows, optimize data management, and enhance productivity with AI tools seamlessly integrated into your Odoo
-        instance. This module provides a robust framework for integrating Large Language Models (LLMs) with Odoo, enabling
-        intelligent interactions through configurable tools. Key features include:
-
-        - Definition and management of LLM tools with custom implementations
-        - Support for dynamic schema generation from Pydantic models
-        - Flexible override options for tool descriptions and schemas
-        - Integration with Odoo mail threads for chat-like interactions with AI assistants
-        - Extensible architecture for adding new tool implementations
-
-        Perfect for businesses looking to leverage AI-driven ERP management, this module empowers administrators to create,
-        configure, and customize LLM tools, supporting intelligent Odoo agents that automate workflows and enhance business
-        automation.
+    "summary": """
+        LLM/AI Agent module for Odoo
     """,
+    "description": """
+Agentic AI (LLM) Agent for Odoo
+==================
+Configure AI agents with specific roles, goals, and tools to enhance your AI interactions.
+
+Key Features:
+- Create and configure AI agents with specific roles and goals
+- Assign preferred tools to each agent
+- Automatically generate system prompts based on agent configuration
+- Attach agents to chat threads for consistent behavior
+- Full integration with the LLM chat system
+
+Use cases include creating specialized agents for customer support, data analysis, training assistance, and more.
+    """,
+    "category": "Productivity, Discuss",
+    "version": "16.0.1.0.0",
+    "depends": ["base", "mail", "web", "llm", "llm_thread", "llm_tool"],
     "author": "Apexive Solutions LLC",
     "website": "https://github.com/apexive/odoo-llm",
-    "license": "LGPL-3",
-    "depends": ["base", "mail", "llm", "llm_thread", "llm_openai"],
-    "external_dependencies": {
-        "python": ["pydantic", "langchain_core"],
-    },
     "data": [
         "security/ir.model.access.csv",
+        "views/llm_agent_views.xml",
         "views/llm_thread_views.xml",
-        "views/llm_tool_views.xml",
-        "views/llm_tool_server_action_views.xml",
-        "data/mail_message_subtype.xml",
-        "data/llm_tool_data.xml",
-        "views/menu_views.xml",
+        "views/llm_menu_views.xml",
+    ],
+    "images": [
+        "static/description/banner.jpeg",
     ],
     "assets": {
         "web.assets_backend": [
+            "llm_agent/static/src/models/main.js",
+            # Models
+            "llm_agent/static/src/models/llm_agent.js",
             "llm_agent/static/src/models/llm_chat.js",
-            "llm_agent/static/src/models/llm_thread.js",
-            "llm_agent/static/src/models/llm_tool.js",
-            "llm_agent/static/src/models/composer_view.js",
-            "llm_agent/static/src/models/llm_tool_message.js",
-            "llm_agent/static/src/models/thread_view.js",
-            "llm_agent/static/src/models/message.js",
-            "llm_agent/static/src/components/llm_chat_thread_header/llm_chat_thread_header_patch.js",
+            "llm_agent/static/src/models/thread.js",
+            "llm_agent/static/src/models/llm_chat_thread_header_view.js",
+            # Components
+            "llm_agent/static/src/components/llm_chat_thread_header/llm_chat_thread_header.js",
             "llm_agent/static/src/components/llm_chat_thread_header/llm_chat_thread_header.xml",
-            "llm_agent/static/src/components/message/message.xml",
         ],
     },
-    "auto_install": False,
-    "application": False,
+    "license": "LGPL-3",
     "installable": True,
+    "application": False,
+    "auto_install": False,
 }

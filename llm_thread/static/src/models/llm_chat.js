@@ -1,8 +1,22 @@
 /** @odoo-module **/
 
-import { registerModel } from "@mail/model/model_core";
-import { attr, one, many } from "@mail/model/model_field";
+import { attr, many, one } from "@mail/model/model_field";
 import { clear } from "@mail/model/model_field_command";
+import { registerModel } from "@mail/model/model_core";
+
+// Constants for thread fields
+const THREAD_SEARCH_FIELDS = [
+  "name",
+  "message_ids",
+  "create_uid",
+  "create_date",
+  "write_date",
+  "model_id",
+  "provider_id",
+  "related_thread_model",
+  "related_thread_id",
+  "tool_ids",
+];
 
 registerModel({
   name: "LLMChat",
@@ -29,7 +43,7 @@ registerModel({
         typeof this.initActiveId === "number"
           ? ["llm.thread", this.initActiveId]
           : this.initActiveId.split("_");
-      const thread = this.messaging.models["Thread"].findFromIdentifyingData({
+      const thread = this.messaging.models.Thread.findFromIdentifyingData({
         id: Number(id),
         model,
       });
@@ -58,67 +72,118 @@ registerModel({
     /**
      * Formats a thread into an active ID string.
      * @param {Thread} thread
-     * @returns {string}
+     * @returns {String}
      */
     threadToActiveId(thread) {
       return `${thread.model}_${thread.id}`;
     },
 
     /**
-     * Loads threads from the server for the current user.
+     * Load threads from the server for the current user.
+     * @param {Array} [additionalFields=[]] - Additional fields to fetch
      */
-    async loadThreads() {
+    async loadThreads(additionalFields = []) {
       const result = await this.messaging.rpc({
         model: "llm.thread",
         method: "search_read",
         kwargs: {
           domain: [["create_uid", "=", this.env.services.user.userId]],
-          fields: [
-            "name",
-            "message_ids",
-            "create_uid",
-            "create_date",
-            "write_date",
-            "model_id",
-            "provider_id",
-            "related_thread_model",
-            "related_thread_id",
-          ],
+          fields: [...THREAD_SEARCH_FIELDS, ...additionalFields],
           order: "write_date desc",
         },
       });
 
-      const threadData = result.map((thread) => ({
-        id: thread.id,
-        model: "llm.thread",
-        name: thread.name,
-        message_needaction_counter: 0,
-        creator: thread.create_uid ? { id: thread.create_uid } : undefined,
-        isServerPinned: true,
-        updatedAt: thread.write_date,
-        relatedThreadModel: thread.related_thread_model,
-        relatedThreadId: thread.related_thread_id,
-        llmModel: thread.model_id
-          ? {
-              id: thread.model_id[0],
-              name: thread.model_id[1],
-              llmProvider: {
-                id: thread.provider_id[0],
-                name: thread.provider_id[1],
-              },
-            }
-          : undefined,
-      }));
-
+      const threadData = result.map((thread) =>
+        this._mapThreadDataFromServer(thread)
+      );
       this.update({ threads: threadData });
     },
 
     /**
+     * Maps server thread data to the format expected by the Thread model
+     * @param {Object} threadData - Raw thread data from server
+     * @returns {Object} - Formatted thread data
+     * @private
+     */
+    _mapThreadDataFromServer(threadData) {
+      const mappedData = {
+        id: threadData.id,
+        model: "llm.thread",
+        name: threadData.name,
+        message_needaction_counter: 0,
+        creator: threadData.create_uid
+          ? { id: threadData.create_uid }
+          : undefined,
+        isServerPinned: true,
+        updatedAt: threadData.write_date,
+        relatedThreadModel: threadData.related_thread_model,
+        relatedThreadId: threadData.related_thread_id,
+        selectedToolIds: threadData.tool_ids || [],
+      };
+
+      // Handle the llmModel field separately to avoid undefined errors
+      if (threadData.model_id && threadData.provider_id) {
+        mappedData.llmModel = {
+          id: threadData.model_id[0],
+          name: threadData.model_id[1],
+          llmProvider: {
+            id: threadData.provider_id[0],
+            name: threadData.provider_id[1],
+          },
+        };
+      }
+
+      return mappedData;
+    },
+
+    /**
+     * Refreshes a specific thread in the threads collection.
+     * @param {Number} threadId - ID of the thread to refresh
+     * @param {Array} [additionalFields=[]] - Additional fields to fetch
+     * @returns {Promise<void>}
+     */
+    async refreshThread(threadId, additionalFields = []) {
+      try {
+        const result = await this.messaging.rpc({
+          model: "llm.thread",
+          method: "search_read",
+          kwargs: {
+            domain: [["id", "=", threadId]],
+            fields: [...THREAD_SEARCH_FIELDS, ...additionalFields],
+          },
+        });
+
+        if (!result || !result.length) {
+          return;
+        }
+
+        const mappedThreadData = this._mapThreadDataFromServer(result[0]);
+
+        // Find the thread in the collection and update it directly
+        if (this.threads) {
+          const threadIndex = this.threads.findIndex(
+            (thread) => thread.id === threadId
+          );
+
+          if (threadIndex !== -1) {
+            // Get the existing thread
+            const thread = this.threads[threadIndex];
+
+            // Update the thread directly
+            thread.update(mappedThreadData);
+          }
+        }
+      } catch (error) {
+        console.error("Error refreshing thread:", error);
+      }
+    },
+
+    /**
      * Selects a thread by ID as the active thread.
-     * @param {number} threadId
+     * @param {Number} threadId
      */
     async selectThread(threadId) {
-      const thread = this.messaging.models["Thread"].findFromIdentifyingData({
+      const thread = this.messaging.models.Thread.findFromIdentifyingData({
         id: threadId,
         model: "llm.thread",
       });
@@ -162,9 +227,9 @@ registerModel({
     /**
      * Creates a new thread with optional related thread info.
      * @param {Object} params - Thread creation parameters
-     * @param {string} params.name - Thread name
-     * @param {string} [params.relatedThreadModel] - Related thread model
-     * @param {number} [params.relatedThreadId] - Related thread ID
+     * @param {String} params.name - Thread name
+     * @param {String} [params.relatedThreadModel] - Related thread model
+     * @param {Number} [params.relatedThreadId] - Related thread ID
      * @returns {Promise<Object|null>} The created thread or null if failed
      * @throws {Error} If no LLM model is available
      */
@@ -211,7 +276,7 @@ registerModel({
         return null;
       }
 
-      const thread = this.messaging.models["Thread"].insert({
+      const thread = this.messaging.models.Thread.insert({
         id: threadId,
         model: "llm.thread",
         name: threadDetails[0].name,
@@ -230,8 +295,8 @@ registerModel({
     /**
      * Ensures LLM models and threads are loaded, creating a thread if needed.
      * @param {Object} [options] - Optional parameters
-     * @param {string} [options.relatedThreadModel] - Related thread model
-     * @param {number} [options.relatedThreadId] - Related thread ID
+     * @param {String} [options.relatedThreadModel] - Related thread model
+     * @param {Number} [options.relatedThreadId] - Related thread ID
      * @returns {Promise<Object|null>} The active or created thread
      */
     async ensureThread({ relatedThreadModel, relatedThreadId } = {}) {
@@ -240,6 +305,10 @@ registerModel({
       }
       if (this.threads.length === 0) {
         await this.loadThreads();
+      }
+      // Load tools if not already loaded
+      if (!this.tools || this.tools.length === 0) {
+        await this.loadTools();
       }
 
       if (relatedThreadModel && relatedThreadId) {
@@ -291,7 +360,17 @@ registerModel({
       }
     },
 
-    async initializeLLMChat(action, initActiveId) {
+    /**
+     * Initialize the LLM chat with the given action.
+     * @param {Object} action - The action that triggered the initialization
+     * @param {Number} initActiveId - The ID of the thread to initialize with
+     * @param {Array} [postInitializationPromises=[]] - Additional promises to execute after loading basic resources
+     */
+    async initializeLLMChat(
+      action,
+      initActiveId,
+      postInitializationPromises = []
+    ) {
       this.update({
         llmChatView: {
           actionId: action.id,
@@ -304,6 +383,12 @@ registerModel({
       await this.loadLLMModels();
       // Load threads first
       await this.loadThreads();
+      await this.loadTools();
+
+      // Execute any additional initialization promises
+      if (postInitializationPromises.length > 0) {
+        await Promise.all(postInitializationPromises);
+      }
 
       // Then handle initial thread
       if (!this.isInitThreadHandled) {
@@ -311,6 +396,32 @@ registerModel({
         if (!this.activeThread) {
           this.openInitThread();
         }
+      }
+    },
+
+    /**
+     * Load tools from the server
+     */
+    async loadTools() {
+      try {
+        const result = await this.messaging.rpc({
+          model: "llm.tool",
+          method: "search_read",
+          kwargs: {
+            domain: [["active", "=", true]],
+            fields: ["name", "id"],
+          },
+        });
+
+        const toolData = result.map((tool) => ({
+          id: tool.id,
+          name: tool.name,
+        }));
+
+        this.update({ tools: toolData });
+      } catch (error) {
+        console.error("Error loading tools:", error);
+        return [];
       }
     },
   },
@@ -374,5 +485,6 @@ registerModel({
         );
       },
     }),
+    tools: many("LLMTool"),
   },
 });

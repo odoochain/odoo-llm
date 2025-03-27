@@ -1,176 +1,102 @@
-import logging
-
-from odoo import fields, models
-
-from ..utils.llm_tool_message_validator import LLMToolMessageValidator
-
-_logger = logging.getLogger(__name__)
+from odoo import api, fields, models
 
 
 class LLMThread(models.Model):
     _inherit = "llm.thread"
 
-    tool_ids = fields.Many2many(
-        "llm.tool",
-        string="Available Tools",
-        help="Tools that can be used by the LLM in this thread",
+    agent_id = fields.Many2one(
+        "llm.agent",
+        string="Agent",
+        ondelete="restrict",
+        help="The agent used for this thread",
     )
 
-    def post_ai_response(self, **kwargs):
-        """Post a message to the thread with support for tool messages"""
-        _logger.debug("Posting message - kwargs: %s", kwargs)
-        body = kwargs.get("body")
+    @api.onchange("agent_id")
+    def _onchange_agent_id(self):
+        """Update provider, model and tools when agent changes"""
+        if self.agent_id:
+            self.provider_id = self.agent_id.provider_id
+            self.model_id = self.agent_id.model_id
+            self.tool_ids = self.agent_id.tool_ids
 
-        # Handle tool messages
-        tool_call_id = kwargs.get("tool_call_id")
-        subtype_xmlid = kwargs.get("subtype_xmlid")
-        tool_calls = kwargs.get("tool_calls")
-        tool_name = kwargs.get("tool_name")
-
-        if tool_call_id and subtype_xmlid == "llm_agent.mt_tool_message":
-            # Use tool name in email_from if available
-            if tool_name:
-                email_from = f"{tool_name} <tool@{self.provider_id.name.lower()}.ai>"
-            else:
-                email_from = f"Tool <tool@{self.provider_id.name.lower()}.ai>"
-
-            message = self.message_post(
-                body=body,
-                message_type="comment",
-                author_id=False,  # No author for AI messages
-                email_from=email_from,
-                partner_ids=[],  # No partner notifications
-                subtype_xmlid=subtype_xmlid,
-            )
-
-            # Set the tool_call_id on the message
-            message.write({"tool_call_id": tool_call_id})
-
-            return message.message_format()[0]
-
-        # Handle assistant messages with tool calls
-        if tool_calls:
-            import json
-
-            message = self.message_post(
-                body=body,
-                message_type="comment",
-                author_id=False,  # No author for AI messages
-                email_from=f"{self.model_id.name} <ai@{self.provider_id.name.lower()}.ai>",
-                partner_ids=[],  # No partner notifications
-            )
-
-            # Set the tool_calls on the message
-            message.write({"tool_calls": json.dumps(tool_calls)})
-
-            return message.message_format()[0]
-
-        # Default behavior for regular messages
-        return super().post_ai_response(**kwargs)
-
-    def _validate_and_clean_messages(self, messages):
-        """
-        Validate and clean messages to ensure proper tool message structure.
-
-        This method uses the LLMToolMessageValidator class to check that all tool messages
-        have a preceding assistant message with matching tool_calls, and removes any
-        tool messages that don't meet this requirement to avoid API errors.
+    def set_agent(self, agent_id):
+        """Set the agent for this thread and update related fields
 
         Args:
-            messages (list): List of messages to validate and clean
+            agent_id (int): The ID of the agent to set
 
         Returns:
-            list: Cleaned list of messages
+            bool: True if successful, False otherwise
         """
-        # Hardcoded value for verbose logging
-        verbose_logging = False
+        self.ensure_one()
 
-        validator = LLMToolMessageValidator(
-            messages, logger=_logger, verbose_logging=verbose_logging
+        # If agent_id is False or 0, just clear the agent
+        if not agent_id:
+            return self.write({"agent_id": False})
+
+        # Get the agent record
+        agent = self.env["llm.agent"].browse(agent_id)
+        if not agent.exists():
+            return False
+
+        # Update the thread with the agent and related fields
+        return self.write(
+            {
+                "agent_id": agent_id,
+                "provider_id": agent.provider_id.id,
+                "model_id": agent.model_id.id,
+                "tool_ids": [(6, 0, agent.tool_ids.ids)],
+            }
         )
-        return validator.validate_and_clean()
 
-    def get_assistant_response(self, stream=True):
+    def action_open_thread(self):
+        """Open the thread in the chat client interface
+
+        Returns:
+            dict: Action to open the thread in the chat client
         """
-        Get assistant response with tool handling.
+        self.ensure_one()
+        return {
+            "type": "ir.actions.client",
+            "tag": "llm_thread.chat_client_action",
+            "params": {
+                "default_active_id": self.id,
+            },
+            "context": {
+                "active_id": self.id,
+            },
+            "target": "current",
+        }
 
-        This method processes the chat messages, validates them, and handles
-        the response from the LLM, including any tool calls and their results.
+    def get_assistant_response(self, stream=True, system_prompt=None):
+        """Override to include agent's system prompt if agent is set
 
         Args:
             stream (bool): Whether to stream the response
+            system_prompt (str, optional): Additional system prompt to include with the agent's system prompt
 
         Yields:
             dict: Response chunks with various types (content, tool_start, tool_end, error)
         """
-        try:
-            messages = self.get_chat_messages()
-            tool_ids = self.tool_ids.ids if self.tool_ids else None
+        # If no agent, use the original method with the provided system prompt
+        if not self.agent_id:
+            return super().get_assistant_response(
+                stream=stream, system_prompt=system_prompt
+            )
 
-            # Validate and clean messages to ensure proper tool message structure
-            messages = self._validate_and_clean_messages(messages)
+        # Get the formatted system prompt from the agent
+        agent_system_prompt = self.agent_id.get_formatted_system_prompt()
 
-            # Process response with possible tool calls
-            response_generator = self._chat_with_tools(messages, tool_ids, stream)
+        # Combine system prompts if both are provided
+        combined_prompt = None
+        if agent_system_prompt and system_prompt:
+            combined_prompt = f"{agent_system_prompt}\n\n{system_prompt}"
+        elif agent_system_prompt:
+            combined_prompt = agent_system_prompt
+        else:
+            combined_prompt = system_prompt
 
-            # Process the response stream
-            content = ""
-            assistant_tool_calls = []
-
-            for response in response_generator:
-                # Handle content
-                if response.get("content") is not None:
-                    content += response.get("content", "")
-                    yield {
-                        "type": "content",
-                        "role": "assistant",
-                        "content": response.get("content", ""),
-                    }
-
-                # Handle tool calls - these come directly from the provider now
-                if response.get("tool_call"):
-                    tool_call = response.get("tool_call")
-                    assistant_tool_calls.append(
-                        {
-                            "id": tool_call["id"],
-                            "type": tool_call["type"],
-                            "function": tool_call["function"],
-                        }
-                    )
-
-                    # Signal tool call start
-                    yield {
-                        "type": "tool_start",
-                        "tool_call_id": tool_call["id"],
-                        "function_name": tool_call["function"]["name"],
-                        "arguments": tool_call["function"]["arguments"],
-                    }
-
-                    # Display raw tool output
-                    raw_output = f"**Arguments:**\n```json\n{tool_call['function']['arguments']}\n```\n\n"
-                    raw_output += (
-                        f"**Result:**\n```json\n{tool_call['result']}\n```\n\n"
-                    )
-
-                    # Signal tool call end with result
-                    yield {
-                        "type": "tool_end",
-                        "role": "tool",
-                        "tool_call_id": tool_call["id"],
-                        "content": tool_call["result"],
-                        "formatted_content": raw_output,
-                    }
-
-            # If we have tool calls, post the assistant message with tool_calls
-            if assistant_tool_calls:
-                self.post_ai_response(
-                    body=content or "", tool_calls=assistant_tool_calls
-                )
-
-        except Exception as e:
-            _logger.error("Error getting AI response: %s", str(e))
-            yield {"type": "error", "error": str(e)}
-
-    def _chat_with_tools(self, messages, tool_ids=None, stream=True):
-        """Helper method to chat with tools"""
-        return self.model_id.chat(messages=messages, stream=stream, tools=tool_ids)
+        # Use the parent implementation with the combined system prompt
+        return super().get_assistant_response(
+            stream=stream, system_prompt=combined_prompt
+        )
