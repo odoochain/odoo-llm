@@ -20,8 +20,10 @@ registerPatch({
         if (!this.selectedAgentId) {
           return clear();
         }
+        // This now searches within a collection of LLMAgent records
+        // and returns a record instance, which is correct.
         return this.threadView.thread.llmChat.llmAgents.find(
-          (a) => a.id === this.selectedAgentId
+          (agentRecord) => agentRecord.id === this.selectedAgentId
         );
       },
     }),

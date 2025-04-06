@@ -1,8 +1,14 @@
 # generated from manifests external_dependencies
+PyMuPDF
 anthropic
 emoji
+llama_index
+markdownify
+nltk
+numpy
 ollama
 openai
+pgvector
 pydantic>=2.0.0
 replicate
 requests
