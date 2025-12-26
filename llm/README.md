@@ -2,6 +2,73 @@
 
 The foundational module for integrating Large Language Models into Odoo. This base module provides the core infrastructure, provider abstraction, and enhanced messaging system that enables all other LLM modules in the ecosystem.
 
+**Module Type:** 📦 Infrastructure (Core Foundation)
+
+## Architecture
+
+```
+                        ┌─────────────────────────────────────────────────────────┐
+                        │              Layer 2: Interfaces                        │
+                        │  ┌─────────────┐ ┌───────────┐ ┌──────────────────────┐ │
+                        │  │llm_assistant│ │llm_thread │ │    llm_mcp_server    │ │
+                        │  └──────┬──────┘ └─────┬─────┘ └──────────┬───────────┘ │
+                        └─────────┼──────────────┼──────────────────┼─────────────┘
+                                  │              │                  │
+                                  ▼              ▼                  ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              ★ llm (This Module) ★                              │
+│                              Core Odoo-LLM Base                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐   │
+│  │ • Provider Abstraction  • Model Management  • Enhanced mail.message     │   │
+│  │ • Publisher Tracking    • Security Framework • API Key Management       │   │
+│  └─────────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                  ▲              ▲
+          ┌───────────────────────┼──────────────┼───────────────────────┐
+          │                       │              │                       │
+    ┌─────┴─────┐          ┌──────┴─────┐  ┌─────┴──────┐         ┌──────┴─────┐
+    │llm_openai │          │ llm_ollama │  │llm_mistral │         │llm_replicate│
+    │ (GPT-4)   │          │  (Local)   │  │ (Mistral)  │         │  (Images)  │
+    └───────────┘          └────────────┘  └────────────┘         └────────────┘
+         Providers extend this module
+```
+
+## Installation
+
+### What to Install
+
+This module is **auto-installed** as a dependency. You typically don't install it directly.
+
+**For AI chat features, install:**
+
+```bash
+odoo-bin -d your_db -i llm_assistant,llm_openai
+```
+
+### This Module Provides
+
+- Provider abstraction framework
+- Model and publisher management
+- Enhanced `mail.message` with `llm_role` field
+- Security groups and access control
+- Base configuration menus
+
+### Modules That Depend on This
+
+| Category           | Modules                                                                  |
+| ------------------ | ------------------------------------------------------------------------ |
+| **Interfaces**     | `llm_assistant`, `llm_thread`, `llm_mcp_server`                          |
+| **Providers**      | `llm_openai`, `llm_ollama`, `llm_mistral`, `llm_replicate`, `llm_fal_ai` |
+| **Infrastructure** | `llm_tool`, `llm_store`, `llm_generate`                                  |
+
+### Common Setups
+
+| I want to...           | Install                                  |
+| ---------------------- | ---------------------------------------- |
+| Chat with AI in Odoo   | `llm_assistant` + `llm_openai`           |
+| Use local AI (privacy) | `llm_assistant` + `llm_ollama`           |
+| Add RAG/knowledge base | Above + `llm_knowledge` + `llm_pgvector` |
+
 ## Overview
 
 The LLM Integration Base serves as the foundation for building AI-powered features across Odoo applications. It extends Odoo's core messaging system with AI-specific capabilities and provides a unified framework for connecting with various AI providers.
@@ -128,7 +195,7 @@ The new `llm_role` field provides dramatic performance improvements:
 ### Module Information
 
 - **Name**: LLM Integration Base
-- **Version**: 16.0.1.3.0
+- **Version**: 18.0.1.4.0
 - **Category**: Technical
 - **License**: LGPL-3
 - **Dependencies**: `mail`, `web`
@@ -273,30 +340,6 @@ class CustomThread(models.Model):
 
         return super().message_post(**kwargs)
 ```
-
-## Migration Notes
-
-### From Previous Versions
-
-**Message Subtype Migration:**
-
-- Message subtypes moved from separate module to base module
-- Automatic migration preserves existing data
-- Performance improvements applied to existing messages
-
-**Role Field Migration:**
-
-- Automatic computation of `llm_role` for existing messages
-- Database migration creates indexes for performance
-- Backward compatibility maintained
-
-### Breaking Changes
-
-**Version 16.0.1.3.0:**
-
-- Moved message subtypes to base module
-- Added required `llm_role` field computation
-- Enhanced provider dispatch mechanism
 
 ## Related Modules
 

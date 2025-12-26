@@ -1,5 +1,6 @@
 /** @odoo-module **/
 
+import { _t } from "@web/core/l10n/translation";
 import { Deferred } from "@web/core/utils/concurrency";
 import { reactive } from "@odoo/owl";
 import { registry } from "@web/core/registry";
@@ -26,6 +27,9 @@ export const llmStoreService = {
       eventSources: new Map(),
       // Resolves when LLM data is loaded
       isReady: new Deferred(),
+      // Pending AI chat open from client action (bypasses unreliable bus)
+      // { threadId, model, resId, autoGenerate }
+      pendingOpenInChatter: null,
 
       // Computed properties - using mailStore as source of truth
       get activeLLMThread() {
@@ -73,7 +77,12 @@ export const llmStoreService = {
           await this.startLLMStreaming(threadId, content);
         } catch (error) {
           console.error("Error sending LLM message:", error);
-          notification.add("Failed to send message", { type: "danger" });
+          notification.add(
+            _t(
+              "Could not send your message. Please check your connection and try again."
+            ),
+            { type: "danger" }
+          );
         }
       },
 
@@ -84,12 +93,14 @@ export const llmStoreService = {
         this.streamingThreads.add(threadId);
 
         try {
-          // Include message parameter for user message creation
-          const eventSource = new EventSource(
-            `/llm/thread/generate?thread_id=${threadId}&message=${encodeURIComponent(
-              message
-            )}`
-          );
+          // Include message parameter only if provided (for user message creation)
+          // If message is null/empty, backend will use latest message in thread
+          const url = message
+            ? `/llm/thread/generate?thread_id=${threadId}&message=${encodeURIComponent(
+                message
+              )}`
+            : `/llm/thread/generate?thread_id=${threadId}`;
+          const eventSource = new EventSource(url);
 
           this.eventSources.set(threadId, eventSource);
 
@@ -101,14 +112,24 @@ export const llmStoreService = {
           eventSource.onerror = (error) => {
             console.error("EventSource error:", error);
             this.stopStreaming(threadId);
-            notification.add("Connection error during AI response", {
-              type: "danger",
-            });
+            notification.add(
+              _t(
+                "Lost connection to AI service. Please try sending your message again."
+              ),
+              {
+                type: "danger",
+              }
+            );
           };
         } catch (error) {
           console.error("Error starting stream:", error);
           this.stopStreaming(threadId);
-          notification.add("Failed to start AI response", { type: "danger" });
+          notification.add(
+            _t(
+              "Could not start AI response. Please check your connection and try again."
+            ),
+            { type: "danger" }
+          );
         }
       },
 
@@ -162,13 +183,20 @@ export const llmStoreService = {
           case "error":
             console.error("Stream error:", data.error);
             this.stopStreaming(threadId);
-            notification.add(data.error || "AI response error", {
+            notification.add(data.error || _t("AI response error"), {
               type: "danger",
             });
             break;
 
           case "done":
             this.stopStreaming(threadId);
+            break;
+
+          case "tool_called":
+          case "tool_succeeded":
+          case "tool_failed":
+            // No-op: handled via message_update
+            console.log("[LLM] no-op event:", data.type);
             break;
 
           default:
@@ -245,12 +273,17 @@ export const llmStoreService = {
           thread.setAsDiscussThread();
         } catch (error) {
           console.error("Error selecting thread:", error);
-          notification.add("Failed to load chat thread", { type: "danger" });
+          notification.add(
+            _t(
+              "Could not load this conversation. It may have been deleted or you may not have access."
+            ),
+            { type: "danger" }
+          );
         }
       },
 
       // Create new thread with default provider and model
-      async createNewThread() {
+      async createNewThread({ recordModel, recordId } = {}) {
         // Get first available provider and model
         const firstProvider = this.getFirstAvailableProvider();
         const firstModel = this.getFirstAvailableModel();
@@ -258,7 +291,9 @@ export const llmStoreService = {
         // Check for null values and show notifications
         if (!firstProvider) {
           notification.add(
-            "No LLM providers available. Please configure at least one provider.",
+            _t(
+              "No AI providers are configured. Please contact your administrator to set up an AI provider."
+            ),
             { type: "danger" }
           );
           return;
@@ -266,7 +301,9 @@ export const llmStoreService = {
 
         if (!firstModel) {
           notification.add(
-            "No LLM models available. Please configure at least one model.",
+            _t(
+              "No AI models are available. Please contact your administrator to configure AI models."
+            ),
             { type: "danger" }
           );
           return;
@@ -275,13 +312,19 @@ export const llmStoreService = {
         // Create thread with auto-generated name
         const threadName = `Chat ${new Date().toLocaleString()}`;
 
-        const threadId = await orm.call("llm.thread", "create", [
-          {
-            name: threadName,
-            provider_id: firstProvider.id,
-            model_id: firstModel.id,
-          },
-        ]);
+        const threadData = {
+          name: threadName,
+          provider_id: firstProvider.id,
+          model_id: firstModel.id,
+        };
+
+        // Auto-link to record if context provided (e.g., from chatter)
+        if (recordModel && recordId) {
+          threadData.model = recordModel;
+          threadData.res_id = recordId;
+        }
+
+        const threadId = await orm.call("llm.thread", "create", [threadData]);
 
         // Reload user threads and select the new one
         await this.refreshThreadsAndSelect(threadId);
@@ -336,11 +379,18 @@ export const llmStoreService = {
             });
           }
 
-          notification.add("Record linked successfully", { type: "success" });
+          notification.add(_t("Record linked to conversation successfully."), {
+            type: "success",
+          });
           return true;
         } catch (error) {
           console.error("Error linking record:", error);
-          notification.add("Failed to link record", { type: "danger" });
+          notification.add(
+            _t(
+              "Could not link the record to this conversation. Please try again."
+            ),
+            { type: "danger" }
+          );
           return false;
         }
       },
@@ -367,13 +417,21 @@ export const llmStoreService = {
             });
           }
 
-          notification.add("Record unlinked successfully", {
-            type: "success",
-          });
+          notification.add(
+            _t("Record unlinked from conversation successfully."),
+            {
+              type: "success",
+            }
+          );
           return true;
         } catch (error) {
           console.error("Error unlinking record:", error);
-          notification.add("Failed to unlink record", { type: "danger" });
+          notification.add(
+            _t(
+              "Could not unlink the record from this conversation. Please try again."
+            ),
+            { type: "danger" }
+          );
           return false;
         }
       },
@@ -389,6 +447,20 @@ export const llmStoreService = {
           return this.isStreamingThread(activeThread.id);
         }
         return false;
+      },
+
+      // Pending open methods - used by client action to bypass unreliable bus
+      setPendingOpenInChatter(data) {
+        this.pendingOpenInChatter = data;
+      },
+
+      consumePendingOpenInChatter(model, resId) {
+        const pending = this.pendingOpenInChatter;
+        if (pending && pending.model === model && pending.resId === resId) {
+          this.pendingOpenInChatter = null;
+          return pending;
+        }
+        return null;
       },
 
       // Get list of data loaders - can be extended by patches

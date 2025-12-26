@@ -1,5 +1,6 @@
 /** @odoo-module **/
 
+import { _t } from "@web/core/l10n/translation";
 import { Composer } from "@mail/core/common/composer";
 import { patch } from "@web/core/utils/patch";
 import { useService } from "@web/core/utils/hooks";
@@ -111,11 +112,26 @@ patch(Composer.prototype, {
    */
   get placeholder() {
     if (this.isLLMThread) {
-      return this.isStreaming ? "AI is responding..." : "Ask anything...";
+      return this.isStreaming
+        ? _t("AI is responding...")
+        : _t("Ask anything...");
     }
 
     // Use original placeholder for regular mail
-    return super.placeholder || "Write a message...";
+    return super.placeholder || _t("Write a message...");
+  },
+
+  /**
+   * Hide composer avatar/sidebar for LLM threads
+   * This removes the empty 42px column on the left
+   */
+  get showComposerAvatar() {
+    if (this.isLLMThread) {
+      return false;
+    }
+
+    // Use original logic for regular mail
+    return super.showComposerAvatar;
   },
 
   /**

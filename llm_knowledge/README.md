@@ -1,780 +1,468 @@
-# LLM Knowledge for Odoo
+# LLM Knowledge
 
-Comprehensive knowledge base and RAG (Retrieval Augmented Generation) system with consolidated resource management, document processing, vector storage, and intelligent retrieval capabilities.
+RAG (Retrieval-Augmented Generation) system for Odoo. Document processing, vector storage, and semantic search with multiple vector store backends.
 
-## Overview
+**Module Type:** 📦 Infrastructure (RAG System)
 
-The LLM Knowledge module provides a complete solution for building knowledge-driven AI applications in Odoo. **Version 18.0.1.1.0** consolidates functionality from the former `llm_resource` module, combining document resource management with advanced RAG capabilities in a single, cohesive system.
-
-### Core Capabilities
-
-- **Consolidated Resource Management** - Document processing, parsing, and storage (formerly `llm_resource`)
-- **RAG System** - Retrieval-Augmented Generation with vector search
-- **Document Processing Pipeline** - Retrieve → Parse → Chunk → Embed → Index
-- **Vector Integration** - Seamless integration with multiple vector stores
-- **Knowledge Collections** - Organized document grouping and management
-- **Automated Processing** - Background processing and automation rules
-
-## Key Features
-
-### Consolidated Architecture (Version 18.0.1.1.0)
-
-**Major Consolidation Benefits:**
-
-- ✅ **Single Module**: Combined resource management and RAG functionality
-- ✅ **Simplified Installation**: One module instead of two interdependent modules
-- ✅ **Better Performance**: Reduced module loading overhead
-- ✅ **Easier Maintenance**: Single codebase for all resource-related functionality
-- ✅ **Enhanced Cohesion**: Resource management and RAG naturally coupled
-
-**Migration**: Automatic migration from `llm_resource` preserves all existing data and functionality.
-
-### Complete Processing Pipeline
-
-**State Management:**
+## Architecture
 
 ```
-draft → retrieved → parsed → chunked → ready
+┌───────────────────────────────────────────────────────────────┐
+│                    Application Layer                          │
+│        ┌───────────────┐           ┌───────────────┐         │
+│        │ llm_assistant │           │  Claude/MCP   │         │
+│        │  (Chat + RAG) │           │   Clients     │         │
+│        └───────┬───────┘           └───────┬───────┘         │
+└────────────────┼───────────────────────────┼─────────────────┘
+                 └─────────────┬─────────────┘
+                               ▼
+              ┌───────────────────────────────────────────┐
+              │      ★ llm_knowledge (This Module) ★      │
+              │            RAG Infrastructure             │
+              │  📄 Documents │ 🔍 Search │ 📚 Collections │
+              └─────────────────────┬─────────────────────┘
+                        ┌───────────┴───────────┐
+                        ▼                       ▼
+    ┌───────────────────────────┐   ┌───────────────────────────┐
+    │         llm_store         │   │     Vector Store          │
+    │   (Vector Store API)      │   │ pgvector/qdrant/chroma    │
+    └───────────────────────────┘   └───────────────────────────┘
+                        │
+                        ▼
+              ┌───────────────────────────────────────────┐
+              │                   llm                     │
+              │            (Core Base Module)             │
+              └───────────────────────────────────────────┘
 ```
 
-1. **Retrieve**: Get content from sources (HTTP, attachments, etc.)
-2. **Parse**: Convert content to markdown format
-3. **Chunk**: Split content into manageable segments
-4. **Embed**: Generate vector embeddings for chunks
-5. **Index**: Store embeddings in vector database for search
+## Installation
 
-### Resource Management
+### What to Install
 
-#### Document Resource Model
+**For RAG capabilities:**
+
+```bash
+# Install with a vector store (choose one)
+odoo-bin -d your_db -i llm_knowledge,llm_pgvector
+
+# Or with Qdrant
+odoo-bin -d your_db -i llm_knowledge,llm_qdrant
+```
+
+### Auto-Installed Dependencies
+
+- `llm` (core infrastructure)
+- `llm_store` (vector store abstraction)
+
+### Why Use This Module?
+
+| Feature      | llm_knowledge                  |
+| ------------ | ------------------------------ |
+| **RAG**      | 📚 Ground AI in your documents |
+| **Search**   | 🔍 Semantic similarity search  |
+| **Sources**  | 📄 Cite document sources       |
+| **Flexible** | 🔌 Multiple vector backends    |
+
+### Common Setups
+
+| I want to... | Install                                                           |
+| ------------ | ----------------------------------------------------------------- |
+| Basic RAG    | `llm_knowledge` + `llm_pgvector`                                  |
+| Chat + RAG   | `llm_assistant` + `llm_openai` + `llm_knowledge` + `llm_pgvector` |
+| Advanced RAG | Above + `llm_knowledge_llama`                                     |
+| Image OCR    | Above + `llm_knowledge_mistral`                                   |
+| Auto-sync    | Above + `llm_knowledge_automation`                                |
+
+## What is RAG?
+
+Retrieval-Augmented Generation enhances LLM responses by retrieving relevant context from your documents before generating answers. Instead of relying solely on the model's training data, RAG:
+
+1. **Retrieves** relevant document chunks using semantic search
+2. **Augments** the LLM prompt with retrieved context
+3. **Generates** responses grounded in your actual documents
+
+This enables LLMs to answer questions about your specific data with source citations, reducing hallucinations and providing verifiable information.
+
+---
+
+## Installation
+
+### Prerequisites
+
+- **Odoo**: 18.0 or higher
+- **Required Modules**: `llm`, `llm_store`
+- **Python Packages**: `requests`, `markdownify`, `PyMuPDF`, `numpy`
+- **Vector Store**: One of `llm_qdrant`, `llm_pgvector`, or `llm_chroma`
+
+### Install Steps
+
+1. **Install Python dependencies:**
+
+   ```bash
+   pip install requests markdownify PyMuPDF numpy
+   ```
+
+2. **Install required Odoo modules:**
+
+   ```bash
+   # Install base modules first
+   odoo-bin -d your_database -i llm,llm_store
+
+   # Install a vector store (choose one)
+   odoo-bin -d your_database -i llm_qdrant  # or llm_pgvector or llm_chroma
+
+   # Install llm_knowledge
+   odoo-bin -d your_database -i llm_knowledge
+   ```
+
+3. **Restart Odoo server**
+
+---
+
+## Quick Start (5 Minutes)
+
+### 1. Create a Knowledge Collection
 
 ```python
-class LLMResource(models.Model):
-    _name = "llm.resource"
-    _description = "LLM Resource"
-    _inherit = ["mail.thread", "mail.activity.mixin"]
+# Access Odoo shell
+odoo-bin shell -d your_database
 
-    name = fields.Char(required=True)
-    url = fields.Char()
-    resource_type = fields.Selection([
-        ('url', 'URL'),
-        ('attachment', 'Attachment'),
-        ('text', 'Text Content')
-    ], required=True)
-
-    # Processing states
-    state = fields.Selection([
-        ('draft', 'Draft'),
-        ('retrieved', 'Retrieved'),
-        ('parsed', 'Parsed'),
-        ('chunked', 'Chunked'),
-        ('ready', 'Ready')
-    ], default='draft')
-
-    # Content fields
-    content = fields.Text()  # Raw retrieved content
-    markdown_content = fields.Text()  # Parsed markdown
-
-    # Processing metadata
-    retrieval_date = fields.Datetime()
-    parsing_date = fields.Datetime()
-    chunking_date = fields.Datetime()
-    embedding_date = fields.Datetime()
-
-    def process_resource(self):
-        """Complete processing pipeline"""
-        self.retrieve()
-        self.parse()
-        self.chunk()
-        self.embed()
-        return True
-```
-
-#### Resource Retrieval System
-
-**HTTP Retriever:**
-
-```python
-class LLMResourceHTTP(models.Model):
-    _name = "llm.resource.http"
-    _inherit = "llm.resource"
-
-    def retrieve_content(self):
-        """Retrieve content from HTTP URL"""
-        import requests
-        from bs4 import BeautifulSoup
-
-        try:
-            response = requests.get(self.url, timeout=30)
-            response.raise_for_status()
-
-            if 'text/html' in response.headers.get('content-type', ''):
-                # Parse HTML content
-                soup = BeautifulSoup(response.content, 'html.parser')
-
-                # Remove script and style elements
-                for script in soup(["script", "style"]):
-                    script.decompose()
-
-                self.content = soup.get_text()
-            else:
-                # Plain text content
-                self.content = response.text
-
-            self.retrieval_date = fields.Datetime.now()
-            self.state = 'retrieved'
-
-        except Exception as e:
-            raise UserError(f"Failed to retrieve content: {str(e)}")
-```
-
-**Attachment Retriever:**
-
-```python
-def retrieve_from_attachment(self, attachment_id):
-    """Retrieve content from Odoo attachment"""
-    attachment = self.env['ir.attachment'].browse(attachment_id)
-
-    if attachment.mimetype == 'application/pdf':
-        self.content = self._extract_pdf_content(attachment.raw)
-    elif attachment.mimetype in ['text/plain', 'text/html']:
-        self.content = base64.b64decode(attachment.datas).decode('utf-8')
-    elif attachment.mimetype in ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']:
-        self.content = self._extract_word_content(attachment.raw)
-    else:
-        raise UserError(f"Unsupported file type: {attachment.mimetype}")
-
-    self.retrieval_date = fields.Datetime.now()
-    self.state = 'retrieved'
-```
-
-#### Content Parsing System
-
-**Multi-Format Parser:**
-
-```python
-class LLMResourceParser(models.Model):
-    _name = "llm.resource.parser"
-
-    def parse_to_markdown(self, content, content_type='html'):
-        """Parse content to markdown format"""
-
-        if content_type == 'html':
-            return self._parse_html_to_markdown(content)
-        elif content_type == 'pdf':
-            return self._parse_pdf_to_markdown(content)
-        elif content_type == 'docx':
-            return self._parse_docx_to_markdown(content)
-        elif content_type == 'plain':
-            return self._parse_plain_to_markdown(content)
-        else:
-            return content  # Return as-is for unknown types
-
-    def _parse_html_to_markdown(self, html_content):
-        """Convert HTML to markdown"""
-        import html2text
-
-        h = html2text.HTML2Text()
-        h.ignore_links = False
-        h.ignore_images = False
-        h.body_width = 0  # Don't wrap lines
-
-        markdown = h.handle(html_content)
-        return self._clean_markdown(markdown)
-
-    def _clean_markdown(self, markdown):
-        """Clean up markdown formatting"""
-        import re
-
-        # Remove excessive blank lines
-        markdown = re.sub(r'\n{3,}', '\n\n', markdown)
-
-        # Clean up list formatting
-        markdown = re.sub(r'^\s*\*\s*$', '', markdown, flags=re.MULTILINE)
-
-        # Remove leading/trailing whitespace
-        markdown = markdown.strip()
-
-        return markdown
-```
-
-### Knowledge Collections
-
-#### Collection Management
-
-```python
-class LLMKnowledgeCollection(models.Model):
-    _name = "llm.knowledge.collection"
-    _description = "Knowledge Collection"
-    _inherit = ["mail.thread"]
-
-    name = fields.Char(required=True)
-    description = fields.Text()
-
-    # Vector store integration
-    store_id = fields.Many2one('llm.store', required=True)
-    store_collection_id = fields.Many2one('llm.store.collection')
-
-    # Resources and chunks
-    resource_ids = fields.Many2many('llm.resource')
-    chunk_ids = fields.One2many('llm.knowledge.chunk', 'collection_id')
-
-    # Processing configuration
-    chunk_size = fields.Integer(default=1000)
-    chunk_overlap = fields.Integer(default=200)
-    embedding_model_id = fields.Many2one('llm.model')
-
-    def create_vector_collection(self):
-        """Create corresponding vector store collection"""
-        if not self.store_collection_id:
-            collection = self.env['llm.store.collection'].create({
-                'name': f"knowledge_{self.id}",
-                'store_id': self.store_id.id,
-                'dimension': self._get_embedding_dimension(),
-                'distance_metric': 'cosine'
-            })
-
-            collection.create_collection()
-            self.store_collection_id = collection.id
-
-        return self.store_collection_id
-
-    def process_all_resources(self):
-        """Process all resources in collection"""
-        for resource in self.resource_ids:
-            if resource.state != 'ready':
-                resource.process_resource()
-
-        # Generate embeddings for all chunks
-        self._generate_embeddings_for_chunks()
-
-        return True
-```
-
-#### Document Chunking
-
-```python
-class LLMKnowledgeChunk(models.Model):
-    _name = "llm.knowledge.chunk"
-    _description = "Knowledge Chunk"
-
-    content = fields.Text(required=True)
-    chunk_index = fields.Integer(required=True)
-
-    # Relationships
-    resource_id = fields.Many2one('llm.resource', required=True)
-    collection_id = fields.Many2one('llm.knowledge.collection', required=True)
-
-    # Vector storage
-    vector_id = fields.Char()  # ID in vector store
-    embedding_model_id = fields.Many2one('llm.model')
-    embedding_date = fields.Datetime()
-
-    # Metadata
-    token_count = fields.Integer()
-    language = fields.Char()
-    quality_score = fields.Float()
-
-    def generate_embedding(self):
-        """Generate and store embedding for this chunk"""
-        if not self.embedding_model_id:
-            self.embedding_model_id = self.collection_id.embedding_model_id
-
-        if not self.embedding_model_id:
-            raise UserError("No embedding model configured")
-
-        # Generate embedding
-        embedding = self.embedding_model_id.provider_id.embedding(
-            text=self.content,
-            model=self.embedding_model_id.name
-        )
-
-        # Store in vector database
-        vector_id = f"chunk_{self.id}"
-        metadata = {
-            'chunk_id': self.id,
-            'resource_id': self.resource_id.id,
-            'collection_id': self.collection_id.id,
-            'chunk_index': self.chunk_index,
-            'token_count': self.token_count,
-            'language': self.language or 'en',
-            'resource_type': self.resource_id.resource_type,
-            'source_url': self.resource_id.url
-        }
-
-        self.collection_id.store_collection_id.insert_vectors(
-            vectors=[embedding],
-            metadata=[metadata],
-            ids=[vector_id]
-        )
-
-        self.vector_id = vector_id
-        self.embedding_date = fields.Datetime.now()
-
-        return True
-```
-
-### Advanced Text Chunking Strategies
-
-#### Intelligent Chunking
-
-```python
-class ChunkingStrategy(models.Model):
-    _name = "llm.chunking.strategy"
-
-    def chunk_by_paragraphs(self, text, max_chunk_size=1000, overlap=200):
-        """Chunk text by paragraphs with size limits"""
-        paragraphs = text.split('\n\n')
-        chunks = []
-        current_chunk = ""
-
-        for paragraph in paragraphs:
-            if len(current_chunk) + len(paragraph) <= max_chunk_size:
-                current_chunk += paragraph + '\n\n'
-            else:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = paragraph + '\n\n'
-
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-
-        # Add overlap between chunks
-        if overlap > 0:
-            chunks = self._add_chunk_overlap(chunks, overlap)
-
-        return chunks
-
-    def chunk_by_sentences(self, text, max_chunk_size=1000):
-        """Chunk text by sentences for better coherence"""
-        import nltk
-
-        sentences = nltk.sent_tokenize(text)
-        chunks = []
-        current_chunk = ""
-
-        for sentence in sentences:
-            if len(current_chunk) + len(sentence) <= max_chunk_size:
-                current_chunk += sentence + " "
-            else:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = sentence + " "
-
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-
-        return chunks
-
-    def chunk_by_semantic_similarity(self, text, model_id, similarity_threshold=0.7):
-        """Advanced chunking based on semantic similarity"""
-        sentences = self._split_into_sentences(text)
-        embeddings = self._generate_sentence_embeddings(sentences, model_id)
-
-        chunks = []
-        current_chunk = [sentences[0]]
-
-        for i in range(1, len(sentences)):
-            similarity = self._cosine_similarity(
-                embeddings[i-1],
-                embeddings[i]
-            )
-
-            if similarity >= similarity_threshold:
-                current_chunk.append(sentences[i])
-            else:
-                chunks.append(' '.join(current_chunk))
-                current_chunk = [sentences[i]]
-
-        if current_chunk:
-            chunks.append(' '.join(current_chunk))
-
-        return chunks
-```
-
-### Vector Search and Retrieval
-
-#### Semantic Search
-
-```python
-class KnowledgeRetriever(models.Model):
-    _name = "llm.knowledge.retriever"
-
-    def search_knowledge(self, query, collection_ids=None, limit=10, min_score=0.7):
-        """Search knowledge base with query"""
-
-        # Get collections to search
-        if collection_ids:
-            collections = self.env['llm.knowledge.collection'].browse(collection_ids)
-        else:
-            collections = self.env['llm.knowledge.collection'].search([])
-
-        all_results = []
-
-        for collection in collections:
-            if not collection.store_collection_id:
-                continue
-
-            # Generate query embedding
-            embedding_model = collection.embedding_model_id
-            if not embedding_model:
-                continue
-
-            query_embedding = embedding_model.provider_id.embedding(
-                text=query,
-                model=embedding_model.name
-            )
-
-            # Search in vector store
-            results = collection.store_collection_id.search_vectors(
-                query_vector=query_embedding,
-                limit=limit,
-                filter_metadata={'collection_id': collection.id}
-            )
-
-            # Filter by minimum score
-            filtered_results = [
-                r for r in results
-                if r.get('score', 0) >= min_score
-            ]
-
-            all_results.extend(filtered_results)
-
-        # Sort by score and limit
-        all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
-        return all_results[:limit]
-
-    def get_relevant_context(self, query, max_tokens=4000):
-        """Get relevant context for RAG generation"""
-        results = self.search_knowledge(query, limit=20)
-
-        context_chunks = []
-        total_tokens = 0
-
-        for result in results:
-            chunk_id = result['metadata']['chunk_id']
-            chunk = self.env['llm.knowledge.chunk'].browse(chunk_id)
-
-            chunk_tokens = chunk.token_count or len(chunk.content.split())
-
-            if total_tokens + chunk_tokens <= max_tokens:
-                context_chunks.append({
-                    'content': chunk.content,
-                    'source': chunk.resource_id.name,
-                    'score': result.get('score', 0),
-                    'url': chunk.resource_id.url
-                })
-                total_tokens += chunk_tokens
-            else:
-                break
-
-        return context_chunks
-```
-
-### RAG Integration Examples
-
-#### Knowledge-Enhanced Chat
-
-```python
-class RAGChatAssistant(models.Model):
-    _name = "llm.assistant.rag"
-    _inherit = "llm.assistant"
-
-    knowledge_collection_ids = fields.Many2many('llm.knowledge.collection')
-    use_rag = fields.Boolean(default=True)
-    max_context_tokens = fields.Integer(default=4000)
-
-    def generate_rag_response(self, user_query, thread_id):
-        """Generate response with RAG context"""
-
-        if not self.use_rag or not self.knowledge_collection_ids:
-            return super().generate_response(user_query, thread_id)
-
-        # Get relevant knowledge
-        retriever = self.env['llm.knowledge.retriever']
-        context = retriever.get_relevant_context(
-            query=user_query,
-            max_tokens=self.max_context_tokens
-        )
-
-        if not context:
-            return super().generate_response(user_query, thread_id)
-
-        # Build enhanced prompt
-        context_text = self._format_context_for_prompt(context)
-        enhanced_prompt = f\"\"\"
-        Context from knowledge base:
-        {context_text}
-
-        User question: {user_query}
-
-        Please answer the question using the provided context. If the context doesn't contain relevant information, say so clearly.
-        \"\"\"
-
-        # Generate response
-        thread = self.env['llm.thread'].browse(thread_id)
-        response = thread.generate_response(enhanced_prompt)
-
-        # Add context sources to response metadata
-        self._add_context_sources(response, context)
-
-        return response
-
-    def _format_context_for_prompt(self, context_chunks):
-        """Format context chunks for inclusion in prompt"""
-        formatted_chunks = []
-
-        for i, chunk in enumerate(context_chunks, 1):
-            formatted_chunks.append(f\"\"\"
-            Source {i}: {chunk['source']}
-            Relevance Score: {chunk['score']:.2f}
-            Content: {chunk['content']}
-            \"\"\"
-
-        return '\n---\n'.join(formatted_chunks)
-```
-
-#### Automated Knowledge Updates
-
-```python
-class KnowledgeAutomation(models.Model):
-    _name = "llm.knowledge.automation"
-
-    def auto_update_web_resources(self):
-        """Automatically update web-based resources"""
-        web_resources = self.env['llm.resource'].search([
-            ('resource_type', '=', 'url'),
-            ('state', '=', 'ready')
-        ])
-
-        for resource in web_resources:
-            try:
-                # Check if content has changed
-                old_content = resource.content
-                resource.retrieve()
-
-                if resource.content != old_content:
-                    # Content changed, reprocess
-                    resource.parse()
-                    resource.chunk()
-                    resource.embed()
-
-                    self._notify_content_update(resource)
-
-            except Exception as e:
-                _logger.warning(f"Failed to update resource {resource.id}: {e}")
-
-    def cleanup_outdated_chunks(self, days_old=30):
-        """Remove chunks from outdated resources"""
-        cutoff_date = fields.Datetime.now() - timedelta(days=days_old)
-
-        outdated_resources = self.env['llm.resource'].search([
-            ('retrieval_date', '<', cutoff_date),
-            ('state', '=', 'ready')
-        ])
-
-        for resource in outdated_resources:
-            # Remove from vector store
-            chunks = resource.chunk_ids
-            vector_ids = chunks.mapped('vector_id')
-
-            for collection in resource.collection_ids:
-                if collection.store_collection_id and vector_ids:
-                    collection.store_collection_id.delete_vectors(ids=vector_ids)
-
-            # Reset resource state
-            resource.state = 'parsed'
-            chunks.unlink()
-```
-
-## API Reference
-
-### Core Resource Methods
-
-```python
-# Resource processing pipeline
-def process_resource(self):
-    """Complete processing: retrieve → parse → chunk → embed"""
-
-def retrieve(self):
-    """Retrieve content from source"""
-
-def parse(self):
-    """Parse content to markdown"""
-
-def chunk(self):
-    """Split content into chunks"""
-
-def embed(self):
-    """Generate embeddings and store in vector DB"""
-
-# Resource management
-def lock_resource(self):
-    """Lock resource during processing"""
-
-def unlock_resource(self):
-    """Unlock resource after processing"""
-
-def reset_to_state(self, state):
-    """Reset resource to specific processing state"""
-```
-
-### Collection Methods
-
-```python
-# Collection management
-def create_vector_collection(self):
-    """Create vector store collection"""
-
-def process_all_resources(self):
-    """Process all resources in collection"""
-
-def add_resources(self, resource_ids):
-    """Add resources to collection"""
-
-def remove_resources(self, resource_ids):
-    """Remove resources from collection"""
-
-# Search and retrieval
-def search_content(self, query, limit=10):
-    """Search collection content"""
-
-def get_statistics(self):
-    """Get collection statistics"""
-```
-
-## Configuration Examples
-
-### Setting Up Knowledge Collection
-
-```python
-# Create knowledge collection
+# Create collection
 collection = env['llm.knowledge.collection'].create({
     'name': 'Product Documentation',
-    'description': 'Technical documentation for all products',
-    'store_id': pgvector_store.id,
+    'store_id': env['llm.store'].search([('store_type', '=', 'qdrant')], limit=1).id,
+    'embedding_model_id': env['llm.model'].search([('name', '=', 'text-embedding-3-small')], limit=1).id,
     'chunk_size': 1000,
     'chunk_overlap': 200,
-    'embedding_model_id': openai_embedding_model.id
 })
 
+# Create vector collection in store
 collection.create_vector_collection()
+```
 
-# Add resources
+### 2. Add a Document
+
+```python
+# Add from URL
+resource = env['llm.resource'].create({
+    'name': 'Product Manual',
+    'url': 'https://example.com/manual.pdf',
+    'resource_type': 'url',
+    'collection_ids': [(4, collection.id)],
+})
+
+# Process the document
+resource.process_resource()  # retrieve → parse → chunk → embed
+```
+
+### 3. Search Your Knowledge
+
+```python
+# Search collection
+results = env['llm.knowledge.chunk'].search(
+    args=[('embedding', '=', 'How do I reset my password?')],
+    limit=5,
+    collection_id=collection.id
+)
+
+# Print results
+for chunk in results:
+    print(f"Score: {chunk.similarity:.2f}")
+    print(f"Source: {chunk.resource_id.name}")
+    print(f"Content: {chunk.content[:200]}...")
+    print("---")
+```
+
+---
+
+## Usage Examples
+
+### Add Document from File Upload
+
+```python
+# Via attachment
+attachment = env['ir.attachment'].create({
+    'name': 'company_policy.pdf',
+    'datas': base64.b64encode(open('/path/to/file.pdf', 'rb').read()),
+})
+
+resource = env['llm.resource'].create({
+    'name': 'Company Policy',
+    'resource_type': 'attachment',
+    'attachment_id': attachment.id,
+    'collection_ids': [(4, collection.id)],
+})
+
+resource.process_resource()
+```
+
+### Add Web Page Content
+
+```python
+# Fetch and parse web page
+resource = env['llm.resource'].create({
+    'name': 'Technical Documentation',
+    'url': 'https://docs.example.com/api',
+    'resource_type': 'url',
+    'collection_ids': [(4, collection.id)],
+})
+
+resource.process_resource()
+```
+
+### Batch Process Multiple Documents
+
+```python
+# Create multiple resources
+urls = [
+    'https://example.com/doc1.pdf',
+    'https://example.com/doc2.pdf',
+    'https://example.com/doc3.pdf',
+]
+
 resources = env['llm.resource'].create([
     {
-        'name': 'Product Manual v1.0',
-        'url': 'https://docs.company.com/product-manual',
-        'resource_type': 'url'
-    },
-    {
-        'name': 'FAQ Document',
-        'resource_type': 'attachment',
-        'attachment_id': faq_attachment.id
+        'name': f'Document {i+1}',
+        'url': url,
+        'resource_type': 'url',
+        'collection_ids': [(4, collection.id)],
     }
+    for i, url in enumerate(urls)
 ])
 
-collection.resource_ids = [(6, 0, resources.ids)]
+# Process all at once
 collection.process_all_resources()
 ```
 
-### Setting Up RAG Assistant
+### Use with LLM Assistant
 
 ```python
 # Create RAG-enabled assistant
-rag_assistant = env['llm.assistant'].create({
-    'name': 'Product Support Assistant',
-    'role': 'Technical Support Specialist',
-    'goal': 'Provide accurate product support using documentation',
-    'knowledge_collection_ids': [(6, 0, [collection.id])],
-    'use_rag': True,
-    'max_context_tokens': 4000,
-    'provider_id': openai_provider.id,
-    'model_id': gpt4_model.id
+assistant = env['llm.assistant'].create({
+    'name': 'Product Support Bot',
+    'provider_id': env.ref('llm_openai.provider_openai').id,
+    'model_id': env['llm.model'].search([('name', '=', 'gpt-4')], limit=1).id,
 })
+
+# Add knowledge tool
+tool = env['llm.tool'].create({
+    'name': 'search_product_docs',
+    'implementation': 'knowledge_retriever',
+    'collection_ids': [(4, collection.id)],
+})
+
+assistant.tool_ids = [(4, tool.id)]
+
+# Chat with knowledge-enhanced assistant
+thread = env['llm.thread'].create({'assistant_id': assistant.id})
+thread.generate_response("How do I configure the API endpoint?")
 ```
 
-## Migration Notes
+---
 
-### From llm_resource Module
+## Screenshots Tutorial
 
-**Automatic Migration (Version 18.0.1.1.0):**
+Visual step-by-step guide showing the complete RAG setup:
 
-- All `llm_resource` data automatically migrated to `llm_knowledge`
-- Resource processing states preserved
-- Collection relationships maintained
-- Vector store connections updated
-- No manual intervention required
+### 1. Setup Vector Store
 
-**Enhanced Features Added:**
+![Vector Store List](static/description/screenshots/vector_store_list.png)
+_Navigate to LLM → Stores to configure Qdrant, pgvector, or Chroma_
 
-- Better resource management integration
-- Improved processing pipeline
-- Enhanced error handling and logging
-- Optimized vector operations
+![Qdrant Configuration](static/description/screenshots/qdrant_config.png)
+_Configure connection: host, port, API key_
 
-### Breaking Changes
+### 2. Configure Embedding Model
 
-None - this is a consolidation update with full backward compatibility.
+![OpenAI Model](static/description/screenshots/openai_model.png)
+_Select text-embedding-3-small or other embedding model_
 
-## Technical Specifications
+### 3. Create Collection
 
-### Module Information
+![Collection Creation](static/description/screenshots/collection_create.png)
+_Link vector store and embedding model_
 
-- **Name**: LLM Knowledge
-- **Version**: 18.0.1.1.0
-- **Category**: Knowledge Management
-- **License**: LGPL-3
-- **Dependencies**: `llm`, `llm_store`, `mail`
-- **Author**: Apexive Solutions LLC
+### 4. Upload & Process Documents
 
-### Key Models
+![Upload Wizard](static/description/screenshots/upload_wizard.png)
+_Upload files, provide URLs, or fetch from web pages_
 
-- **`llm.resource`**: Document resource management (consolidated from `llm_resource`)
-- **`llm.knowledge.collection`**: Knowledge collection organization
-- **`llm.knowledge.chunk`**: Text chunks with embeddings
-- **`llm.knowledge.retriever`**: Search and retrieval operations
-- **`llm.resource.parser`**: Content parsing and conversion
-- **`llm.resource.http`**: HTTP resource retrieval
+![Resources List](static/description/screenshots/resources_list_and_process.png)
+_View uploaded documents and trigger processing_
 
-### Processing States
+![Processing Pipeline](static/description/screenshots/processing_pipeline.png)
+_Watch the pipeline: Parse → Chunk → Embed_
 
-| State       | Description                      | Operations Available |
-| ----------- | -------------------------------- | -------------------- |
-| `draft`     | Initial state                    | retrieve()           |
-| `retrieved` | Content retrieved                | parse()              |
-| `parsed`    | Content parsed to markdown       | chunk()              |
-| `chunked`   | Content split into chunks        | embed()              |
-| `ready`     | Embeddings generated and indexed | search, retrieve     |
+![Chunks View](static/description/screenshots/chunks_view.png)
+_Inspect generated chunks with embeddings_
 
-## Performance Features
+### 5. Query with Assistant
 
-- **Batch Processing**: Efficient handling of large document sets
-- **Incremental Updates**: Only reprocess changed content
-- **Vector Optimization**: Automatic index optimization
-- **Memory Management**: Efficient chunk processing
-- **Parallel Processing**: Concurrent resource processing
+![LLM Assistant Chat](static/description/screenshots/llm_assistant_chat.png)
+_Chat with knowledge-enhanced assistant_
 
-## Security Features
+### 6. Use with External Apps
 
-- **Access Control**: Role-based access to collections and resources
-- **Content Validation**: Sanitization of retrieved content
-- **Rate Limiting**: Throttling of external resource retrieval
-- **Audit Trail**: Complete tracking of resource processing
+![Claude Desktop Usage](static/description/screenshots/claude_desktop_usage.png)
+_Query from Claude Desktop, Cursor, or other MCP-compatible apps_
 
-## Related Modules
+---
 
-- **`llm`**: Base infrastructure and provider framework
-- **`llm_store`**: Vector storage abstraction layer
-- **`llm_assistant`**: AI assistants with RAG integration
-- **`llm_tool_knowledge`**: Knowledge search tool
-- **`llm_knowledge_automation`**: Automation rules for knowledge processing
+## Configuration
 
-## Support & Resources
+### Collection Settings
 
-- **Documentation**: [GitHub Repository](https://github.com/apexive/odoo-llm)
-- **Architecture Guide**: [OVERVIEW.md](../OVERVIEW.md)
-- **Knowledge Examples**: [Knowledge Management Guide](examples/)
-- **Community**: [GitHub Discussions](https://github.com/apexive/odoo-llm/discussions)
+```python
+# Chunking configuration
+collection.chunk_size = 1000        # Max tokens per chunk
+collection.chunk_overlap = 200      # Overlap between chunks
+
+# Embedding configuration
+collection.embedding_model_id = embedding_model  # Which model to use
+collection.store_id = vector_store                # Which vector store
+```
+
+### Processing Pipeline States
+
+| State       | Description           | Next Action  |
+| ----------- | --------------------- | ------------ |
+| `draft`     | Initial state         | `retrieve()` |
+| `retrieved` | Content fetched       | `parse()`    |
+| `parsed`    | Converted to markdown | `chunk()`    |
+| `chunked`   | Split into segments   | `embed()`    |
+| `ready`     | Embeddings stored     | Search/Query |
+
+### Environment Variables
+
+```bash
+# Optional: Configure default settings
+ODOO_LLM_CHUNK_SIZE=1000
+ODOO_LLM_CHUNK_OVERLAP=200
+ODOO_LLM_DEFAULT_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+---
+
+## Models Reference
+
+### `llm.knowledge.collection`
+
+**Responsibility:** Manages knowledge collections, coordinates document processing, and handles vector store integration.
+
+**Key Methods:**
+
+- `create_vector_collection()` - Create corresponding collection in vector store
+- `process_all_resources()` - Process all documents in collection
+- `search_content(query, limit=10)` - Search collection with semantic query
+- `add_resources(resource_ids)` - Add resources to collection
+- `remove_resources(resource_ids)` - Remove resources from collection
+- `get_statistics()` - Get collection statistics (resource count, chunk count, etc.)
+
+### `llm.resource`
+
+**Responsibility:** Handles document retrieval, parsing, state management, and content extraction from various sources.
+
+**Key Methods:**
+
+- `process_resource()` - Run complete pipeline (retrieve → parse → chunk → embed)
+- `retrieve()` - Fetch content from source (URL, attachment, text)
+- `parse()` - Convert raw content to markdown
+- `chunk()` - Split parsed content into chunks
+- `embed()` - Generate embeddings for chunks
+- `reset_to_state(state)` - Reset resource to specific processing state
+- `lock_resource()` - Lock resource during processing
+- `unlock_resource()` - Unlock resource after processing
+
+**Fields:**
+
+- `state` - Processing state (draft/retrieved/parsed/chunked/ready)
+- `resource_type` - Source type (url/attachment/text)
+- `content` - Raw retrieved content
+- `markdown_content` - Parsed markdown content
+- `collection_ids` - Associated collections
+
+### `llm.knowledge.chunk`
+
+**Responsibility:** Represents individual text chunks with embeddings and metadata for vector search.
+
+**Key Methods:**
+
+- `generate_embedding()` - Generate and store embedding for chunk
+- `search(query, limit, collection_id)` - Semantic search (overridden search method)
+
+**Fields:**
+
+- `content` - Chunk text content
+- `chunk_index` - Position in original document
+- `vector_id` - ID in vector store
+- `embedding_model_id` - Model used for embedding
+- `token_count` - Number of tokens in chunk
+- `similarity` - Search similarity score (computed)
+
+### `llm.resource.parser`
+
+**Responsibility:** Converts various document formats (PDF, HTML, DOCX) to clean markdown.
+
+**Key Methods:**
+
+- `parse_to_markdown(content, content_type)` - Main parsing entry point
+- `parse_pdf(pdf_bytes)` - Extract and parse PDF content
+- `parse_html(html_content)` - Convert HTML to markdown
+- `clean_markdown(markdown)` - Clean up markdown formatting
+
+### `llm.knowledge.retriever`
+
+**Responsibility:** Handles semantic search and context retrieval for RAG operations.
+
+**Key Methods:**
+
+- `search_knowledge(query, collection_ids, limit, min_score)` - Search across collections
+- `get_relevant_context(query, max_tokens)` - Get context for RAG generation
+- `rank_results(results)` - Re-rank search results
+
+---
+
+## Optional Extensions
+
+### Image Parsing with Mistral OCR
+
+Install `llm_knowledge_mistral` to extract text from images, receipts, and handwritten notes:
+
+```bash
+odoo-bin -d your_database -i llm_knowledge_mistral
+```
+
+**Capabilities:**
+
+- Handwritten notes
+- Receipts and invoices
+- Screenshots
+- Scanned documents
+- Product labels
+
+### Automated Knowledge Sync
+
+Install `llm_knowledge_automation` for automatic document updates:
+
+```bash
+odoo-bin -d your_database -i llm_knowledge_automation
+```
+
+### Alternative Vector Stores
+
+- **llm_pgvector** - PostgreSQL with pgvector extension (SQL-based)
+- **llm_chroma** - Lightweight embedded vector database
+- **llm_qdrant** - High-performance vector search engine
+
+---
+
+## Documentation
+
+- **Full Documentation**: `doc/index.rst`
+- **GitHub Repository**: [https://github.com/apexive/odoo-llm](https://github.com/apexive/odoo-llm)
+- **Module Manifest**: `__manifest__.py`
+
+---
 
 ## License
 
@@ -782,4 +470,4 @@ This module is licensed under [LGPL-3](https://www.gnu.org/licenses/lgpl-3.0.htm
 
 ---
 
-_© 2025 Apexive Solutions LLC. All rights reserved._
+**© 2025 Apexive Solutions LLC. All rights reserved.**

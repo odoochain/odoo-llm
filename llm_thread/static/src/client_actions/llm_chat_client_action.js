@@ -1,5 +1,6 @@
 /** @odoo-module **/
 
+import { _t } from "@web/core/l10n/translation";
 import { Component, onWillDestroy, onWillStart, useState } from "@odoo/owl";
 import { LLMChatContainer } from "@llm_thread/components/llm_chat_container/llm_chat_container";
 import { registry } from "@web/core/registry";
@@ -57,7 +58,10 @@ export class LLMChatClientAction extends Component {
       }
     } catch (error) {
       console.error("Error initializing LLM chat:", error);
-      this.notification.add("Failed to initialize AI chat", { type: "danger" });
+      this.notification.add(
+        _t("Could not start AI chat. Please refresh the page and try again."),
+        { type: "danger" }
+      );
     }
   }
 
@@ -93,7 +97,9 @@ export class LLMChatClientAction extends Component {
       });
       if (!threadAfterLoad) {
         this.notification.add(
-          "Requested thread not found, showing recent threads",
+          _t(
+            "The requested conversation could not be found. Showing your recent conversations instead."
+          ),
           { type: "warning" }
         );
         return;
@@ -121,7 +127,6 @@ export class LLMChatClientAction extends Component {
       const context = props.action.context || {};
       const resModel = context.default_res_model;
       const resId = context.default_res_id;
-      const name = context.default_name || `AI Chat - ${resModel} #${resId}`;
 
       await this.action.doAction({
         name: "Create AI Chat",
@@ -131,16 +136,19 @@ export class LLMChatClientAction extends Component {
         views: [[false, "form"]],
         target: "new",
         context: {
-          default_name: name,
+          // No default_name - backend will generate it from record.display_name
           default_model: resModel,
           default_res_id: resId,
         },
       });
     } catch (error) {
       console.error("Error opening create thread form:", error);
-      this.notification.add("Failed to open chat creation form", {
-        type: "danger",
-      });
+      this.notification.add(
+        _t("Could not open the new conversation form. Please try again."),
+        {
+          type: "danger",
+        }
+      );
     }
   }
 
@@ -159,7 +167,12 @@ export class LLMChatClientAction extends Component {
       // No auto-creation - let user create threads via form
     } catch (error) {
       console.error("Error loading user threads:", error);
-      this.notification.add("Failed to load chat threads", { type: "danger" });
+      this.notification.add(
+        _t(
+          "Could not load your conversations. Please refresh the page and try again."
+        ),
+        { type: "danger" }
+      );
     }
   }
 

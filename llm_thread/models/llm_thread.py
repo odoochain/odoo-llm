@@ -157,10 +157,37 @@ class LLMThread(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         """Set default title if not provided"""
+        needs_unique_name = []
+
         for vals in vals_list:
             if not vals.get("name"):
-                vals["name"] = f"Chat with {self.model_id.name}"
-        return super().create(vals_list)
+                # If linked to a record, use its display name
+                if vals.get("model") and vals.get("res_id"):
+                    try:
+                        record = self.env[vals["model"]].browse(vals["res_id"])
+                        if record.exists():
+                            vals["name"] = f"AI Chat - {record.display_name}"
+                        else:
+                            # Record doesn't exist, use technical format
+                            vals["name"] = f"AI Chat - {vals['model']}#{vals['res_id']}"
+                    except Exception:
+                        # Model doesn't exist or access error, use technical format
+                        vals["name"] = f"AI Chat - {vals['model']}#{vals['res_id']}"
+                else:
+                    # Generic name - will add unique ID after creation
+                    vals["name"] = "New Chat"
+                    needs_unique_name.append(True)
+            else:
+                needs_unique_name.append(False)
+
+        records = super().create(vals_list)
+
+        # Update generic thread names to include unique ID
+        for record, needs_update in zip(records, needs_unique_name):
+            if needs_update:
+                record.name = f"New Chat #{record.id}"
+
+        return records
 
     @api.depends("message_ids.attachment_ids")
     def _compute_attachment_ids(self):
@@ -366,7 +393,10 @@ class LLMThread(models.Model):
 
             if not result or not result[0]:
                 raise UserError(
-                    _("Thread is currently generating a response. Please wait.")
+                    _(
+                        "This conversation is currently generating a response. "
+                        "Please wait for it to complete before sending another message."
+                    )
                 )
 
             _logger.info(f"Acquired advisory lock for thread {self.id}")
@@ -374,11 +404,22 @@ class LLMThread(models.Model):
         except UserError:
             raise
         except OperationalError as e:
-            _logger.error(f"Database error acquiring lock for thread {self.id}: {e}")
-            raise UserError(_("Database error acquiring thread lock.")) from e
+            _logger.error("Database error acquiring lock for thread %s: %s", self.id, e)
+            raise UserError(
+                _(
+                    "Unable to process your request due to a system conflict. "
+                    "Please wait a moment and try again."
+                )
+            ) from e
         except Exception as e:
-            _logger.error(f"Unexpected error acquiring lock for thread {self.id}: {e}")
-            raise UserError(_("Failed to acquire thread lock.")) from e
+            _logger.error(
+                "Unexpected error acquiring lock for thread %s: %s", self.id, e
+            )
+            raise UserError(
+                _(
+                    "Your request could not be processed. Please refresh the page and try again."
+                )
+            ) from e
 
     def _release_thread_lock(self):
         """Release PostgreSQL advisory lock for this thread."""
@@ -463,16 +504,6 @@ class LLMThread(models.Model):
                     "name": thread.model_id.name,
                     "model": "llm.model",
                 }
-
-            # Always include prompt_id (even if False) to ensure it's cleared in frontend
-            if thread.prompt_id:
-                thread_data["prompt_id"] = {
-                    "id": thread.prompt_id.id,
-                    "name": thread.prompt_id.name,
-                    "model": "llm.prompt",
-                }
-            else:
-                thread_data["prompt_id"] = False
 
             if thread.tool_ids:
                 thread_data["tool_ids"] = [

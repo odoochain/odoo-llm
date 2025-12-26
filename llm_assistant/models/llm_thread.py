@@ -1,6 +1,6 @@
 import logging
 
-from odoo import api, fields, models
+from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -160,10 +160,10 @@ class LLMThread(models.Model):
         return thread, assistant, None
 
     def _thread_to_store(self, store, **kwargs):
-        """Extend base _thread_to_store to include assistant_id."""
+        """Extend base _thread_to_store to include assistant_id and prompt_id."""
         super()._thread_to_store(store, **kwargs)
 
-        # Always add assistant_id to thread data (either value or False)
+        # Always add assistant_id and prompt_id to thread data (either value or False)
         for thread in self:
             thread_data = {
                 "id": thread.id,
@@ -174,6 +174,14 @@ class LLMThread(models.Model):
                     "model": "llm.assistant",
                 }
                 if thread.assistant_id
+                else False,
+                # prompt_id is defined in this module, so handle it here
+                "prompt_id": {
+                    "id": thread.prompt_id.id,
+                    "name": thread.prompt_id.name,
+                    "model": "llm.prompt",
+                }
+                if thread.prompt_id
                 else False,
             }
             store.add("mail.thread", thread_data)
@@ -204,8 +212,13 @@ class LLMThread(models.Model):
                     str(e),
                 )
                 # Continue without prompt messages rather than failing completely
+                # Post a user-friendly warning to the thread
                 self.message_post(
-                    body=f"Warning: Could not load prompt messages from '{self.prompt_id.name}': {str(e)}"
+                    body=_(
+                        "Note: The prompt '%s' could not be loaded. "
+                        "Continuing without it. (Error: %s)"
+                    )
+                    % (self.prompt_id.name, str(e))
                 )
 
         return []
@@ -216,7 +229,32 @@ class LLMThread(models.Model):
 
         # Get last message if not provided
         if not last_message:
-            last_message = self.get_latest_llm_message()
+            try:
+                last_message = self.get_latest_llm_message()
+            except UserError:
+                # No DB messages found - check if prepended messages have a user message
+                prepend_msgs = self.get_prepend_messages()
+                user_msg = next(
+                    (msg for msg in prepend_msgs if msg.get("role") == "user"), None
+                )
+
+                if user_msg:
+                    # Extract content from prepended user message
+                    content = user_msg.get("content", [])
+                    if isinstance(content, list) and content:
+                        body = content[0].get("text", "")
+                    else:
+                        body = str(content)
+
+                    # Create actual user message from prepended content
+                    last_message = self.message_post(
+                        body=body,
+                        llm_role="user",
+                        author_id=self.env.user.partner_id.id,
+                    )
+                else:
+                    # No user message in prepended messages either
+                    raise
 
         # Continue generation loop
         while self._should_continue(last_message):
@@ -485,4 +523,10 @@ class LLMThread(models.Model):
                 return error_msg
             except Exception as e2:
                 _logger.error(f"Failed to create error message: {e2}")
-                return None
+                # Yield error event so frontend knows something went wrong
+                yield {
+                    "type": "error",
+                    "error": f"Tool execution failed: {str(e)}",
+                }
+                # Re-raise the original exception - don't silently return None
+                raise e from e2

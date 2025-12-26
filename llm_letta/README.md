@@ -1,150 +1,371 @@
 # Letta LLM Integration
 
-This module provides integration with Letta platform for Odoo's LLM framework.
+**Module Type:** 🔌 Extension (Stateful AI Agents)
 
-## Features
+## Architecture
 
-- **Agent-Based Chat**: Stateful conversations using Letta agents with persistent memory
-- **MCP Integration**: Full Model Context Protocol support for tool access
-- **Tool Synchronization**: Automatic sync of Odoo tools to Letta agents
-- **Thread Integration**: Agents created automatically with threads
-- **Streaming Support**: Real-time message streaming with tool call logging
-- **Memory Management**: Uses assistant prompts for agent personas
-- **Local/Cloud Support**: Supports both local Letta servers and Letta Cloud
-- **Docker Support**: Configurable URLs for containerized environments
+```
+┌───────────────────────────────────────────────────────────────┐
+│                      Application Layer                        │
+│        ┌───────────────┐           ┌───────────────┐         │
+│        │ llm_assistant │           │  llm_thread   │         │
+│        └───────┬───────┘           └───────┬───────┘         │
+└────────────────┼───────────────────────────┼─────────────────┘
+                 └─────────────┬─────────────┘
+                               ▼
+              ┌───────────────────────────────────────────┐
+              │       ★ llm_letta (This Module) ★         │
+              │           Letta AI Integration            │
+              │  🧠 Memory │ MCP Tools │ Stateful Agents  │
+              └─────────────────────┬─────────────────────┘
+                        ┌───────────┴───────────┐
+                        ▼                       ▼
+    ┌───────────────────────────┐   ┌───────────────────────────┐
+    │           llm             │   │       Letta Server        │
+    │    (Core Base Module)     │   │ (localhost:8283 or Cloud) │
+    └───────────────────────────┘   │  🧠 Persistent memory     │
+                                    └───────────────────────────┘
+```
 
 ## Installation
 
-**⚠️ Important: Requires Letta server version 0.11.7. Earlier versions have MCP integration bugs.**
+### What to Install
 
-### Letta Client Dependency
+**For stateful AI agents:**
 
-**Important**: This module currently requires a forked version of the Letta Python client due to a streaming issue in the official package.
+```bash
+# Install Python client
+pip install git+https://github.com/apexive/letta-python.git@main
 
-- **Issue**: https://github.com/letta-ai/letta-python/issues/25
-- **Related PR**: https://github.com/letta-ai/letta-python/pull/24
+# Start Letta server (Docker)
+docker compose up letta -d
 
-Until the official package is fixed, install the forked version:
+# Install the Odoo module
+odoo-bin -d your_db -i llm_letta,llm_mcp_server
+```
+
+### Auto-Installed Dependencies
+
+- `llm` (core infrastructure)
+- `llm_thread` (conversation management)
+
+### Why Choose Letta?
+
+| Feature     | Letta                          |
+| ----------- | ------------------------------ |
+| **Memory**  | 🧠 Persistent across sessions  |
+| **State**   | 💾 Stateful agents per thread  |
+| **Tools**   | 🔧 MCP tool integration        |
+| **Context** | 📚 Long-term context awareness |
+
+### Common Setups
+
+| I want to...    | Install                                          |
+| --------------- | ------------------------------------------------ |
+| Stateful agents | `llm_letta` + `llm_mcp_server`                   |
+| Memory + tools  | `llm_assistant` + `llm_letta` + `llm_mcp_server` |
+
+## Overview
+
+This is a **foundational module** that integrates [Letta](https://www.letta.com/) agents with Odoo. Letta is an advanced AI agent framework with built-in persistent memory, allowing agents to maintain context across conversations.
+
+**What makes Letta different from standard LLM providers?**
+
+- **Persistent Memory**: Letta agents maintain their own conversation history and memory state on the server side
+- **Stateful Agents**: Each Odoo thread gets its own dedicated Letta agent that persists across sessions
+- **Tool Access**: Agents can access Odoo data through Model Context Protocol (MCP)
+
+> **Note**: This is a foundational integration. Advanced features like viewing tool calls in Odoo, shared memory across threads, and memory block management UI are planned for future releases.
+
+## Features
+
+- **Agent Lifecycle Management**: Automatic creation, updating, and cleanup of Letta agents per thread
+- **MCP Tool Integration**: Zero-config connection to Odoo's MCP server
+- **Auto-sync Tools**: Thread tools automatically synchronized to Letta agents
+- **Streaming Support**: Real-time response streaming
+- **Flexible Deployment**: Works with both self-hosted Letta server and Letta Cloud
+- **Security**: Automatic per-user API key generation for MCP authentication
+
+## Requirements
+
+### Server Requirements
+
+- **Letta Server**: Version 0.11.7+ (earlier versions have MCP bugs)
+  - Self-hosted via Docker (recommended)
+  - Or Letta Cloud account
+- **PostgreSQL**: With `pgvector` extension enabled
+- **Odoo Modules**:
+  - `llm_letta`: This module
+  - `llm_mcp_server`: Required for tool access
+
+### Python Requirements
+
+- **Letta Python Client**: Custom fork required (fixes model fetching bug)
+  ```bash
+  pip install git+https://github.com/apexive/letta-python.git@main
+  ```
+  _Note: Forked version needed due to [`listembeddingmodels()` bug](https://github.com/letta-ai/letta-python/issues/25) in official client_
+
+### Optional
+
+- **OpenAI API Key**: For using OpenAI models
+- **Ollama**: For local open-source models
+
+## Installation
+
+### Step 1: Install Python Client
 
 ```bash
 pip install git+https://github.com/apexive/letta-python.git@main
 ```
 
-This fork includes fixes for:
+### Step 2: Set Up Letta Server (Docker)
 
-- Proper streaming response handling
-- Escape sequence processing in chunked responses
+**1. Add to your `docker-compose.yml`:**
 
-### Installation Steps
-
-1. Install the required Python client (forked version):
-
-   ```bash
-   pip install git+https://github.com/apexive/letta-python.git@main
-   ```
-
-2. Install this module in Odoo along with `llm_mcp_server` dependency
-
-3. Set up Letta server (see Local Setup section below)
-
-## Dependencies
-
-This module requires `llm_mcp_server` module for tool integration. The MCP server exposes Odoo tools that Letta agents can access.
-
-## Local Setup (Docker - Recommended)
-
-### 1. Create Letta Database
-
-```bash
-psql -U odoo -h localhost postgres
+```yaml
+services:
+  letta:
+    image: letta/letta:latest
+    ports:
+      - "8083:8083" # Web UI
+      - "8283:8283" # API server
+    env_file:
+      - .env.letta
 ```
 
-```sql
-CREATE DATABASE letta OWNER odoo;
-\c letta
-CREATE EXTENSION vector;
-\q
-```
-
-### 2. Configure Environment
-
-Create a `.env.letta` file with:
+**2. Create Letta database with vector support:**
 
 ```bash
-LETTA_DEBUG=False
-LETTA_PG_URI=postgresql://odoo:odoo@host.docker.internal:5432/letta
+# Replace POSTGRES_USER with your PostgreSQL username
+psql -U POSTGRES_USER postgres -c "CREATE DATABASE letta OWNER POSTGRES_USER"
+psql -U POSTGRES_USER letta -c "CREATE EXTENSION vector"
+
+# Example (if your postgres user is 'odoo'):
+# psql -U odoo postgres -c "CREATE DATABASE letta OWNER odoo"
+# psql -U odoo letta -c "CREATE EXTENSION vector"
+```
+
+**3. Create `.env.letta` configuration file:**
+
+```bash
+cat > .env.letta <<EOF
+LETTA_PG_URI=postgresql://POSTGRES_USER:POSTGRES_PASSWORD@host.docker.internal:5432/letta
 OPENAI_API_KEY=your_openai_api_key
-OLLAMA_BASE_URL=http://host.docker.internal:11434  # Optional, for local models
+OLLAMA_BASE_URL=http://host.docker.internal:11434  # Optional: for local models
+EOF
+
+# Example (if postgres user is 'odoo' with password 'odoo'):
+# LETTA_PG_URI=postgresql://odoo:odoo@host.docker.internal:5432/letta
 ```
 
-### 3. Start Docker Letta Server
+**4. Start Letta server:**
 
 ```bash
-# Close Letta Desktop app if running
-# Start only Letta server in Docker
-docker compose up letta_server -d
+docker compose up letta -d
 ```
 
-The server will be available at `http://localhost:8283`.
+Server will be available at:
 
-For more detailed instructions on self-hosting Letta, see: https://docs.letta.com/guides/selfhosting#running-with-docker-recommended
+- API: `http://localhost:8283`
+- Web UI: Access via https://app.letta.com/settings/organization/projects?view-mode=selfHosted
+
+See [Letta docs](https://docs.letta.com/guides/selfhosting) for more details.
+
+### Step 3: Configure MCP Server in Odoo
+
+The MCP (Model Context Protocol) server allows Letta agents to access Odoo tools.
+
+1. Go to: **LLM → Configuration → MCP Server**
+2. Set **External URL**: `http://host.docker.internal:8069`
+   - This allows Letta in Docker to access Odoo running on the host machine
+
+### Step 4: Install Odoo Module
+
+```bash
+odoo-bin -d your_db -i llm_letta,llm_mcp_server
+```
+
+## Quick Start
+
+**Get started in 5 minutes:**
+
+1. Go to **LLM → Threads** → Create new thread
+2. Select:
+   - **Provider**: "Letta (Local)"
+   - **Model**: Any available model
+3. Start chatting!
+
+**That's it!** The agent is automatically created with:
+
+- Access to all your active Odoo tools
+- Persistent memory across conversations
+- Context awareness
 
 ## Configuration
 
-### Local Letta Server
+### Local Server (Default)
 
-For local development, a default provider "Letta (Local)" is configured to connect to `http://localhost:8283`.
+The default "Letta (Local)" provider connects to `localhost:8283` - no API key needed.
 
-No API key is required for local connections.
+This is perfect for:
+
+- Development
+- Self-hosted deployments
+- Maximum privacy and control
 
 ### Letta Cloud
 
-1. Create a new provider or modify the "Letta (Cloud)" provider
-2. Set your Letta API token in the "API Key" field
-3. Set your project name in the "API Base" field (defaults to "default-project")
+To use Letta Cloud instead of self-hosting:
 
-## MCP Tool Integration
+1. Get API token from [Letta Cloud](https://app.letta.com)
+2. In Odoo: Go to **LLM → Providers → "Letta (Cloud)"**
+3. Configure:
+   - **API Key**: Your Letta Cloud token
+   - **Project Name**: Default is "default-project"
+4. Use "Fetch Models" wizard to sync available models
 
-This module provides full integration with Odoo's MCP server, giving Letta agents access to:
+## Tool Integration
 
-- **Record Operations**: Create, read, update, delete Odoo records
-- **Model Methods**: Execute any Odoo model method
-- **Model Inspection**: Explore Odoo model structure
-- **Automatic Sync**: Tools automatically sync when thread tools change
+### Zero-Configuration MCP Setup
 
-See `TECHNICAL_GUIDE.md` for detailed integration information.
+Letta agents automatically connect to Odoo's MCP server:
 
-## Current Limitations
+- **API keys generated automatically** per user (no manual setup!)
+- All active `llm.tool` records instantly available to agents
+- Tools sync automatically when thread configuration changes
 
-The following features are not yet supported:
+### Available Tool Operations
 
-- Text embeddings
-- Content generation
+Through MCP integration, agents can:
 
-## Usage
+- **CRUD operations**: Create, read, update, delete records
+- **Method execution**: Call model methods with parameters
+- **Model inspection**: Explore available models and fields
 
-1. Go to LLM → Providers
-2. Find or create a Letta provider
-3. Configure API settings
-4. Use the "Fetch Models" wizard to retrieve available models
-5. Create a thread with Letta provider and model
-6. Agent will be created automatically and stored in `thread.external_id`
-7. Start chatting - agent maintains conversation history
+For technical details, see `TECHNICAL_GUIDE.md`.
 
-## Architecture
+## Usage Examples
 
-This module follows the standard Odoo LLM provider pattern:
+### Basic Conversation
 
-- Extends `llm.provider` model with Letta-specific methods
-- Registers "letta" service in available services
-- Uses dispatch pattern for provider-specific method calls
-- Provides proper error handling and logging
+Create a thread with Letta provider and start asking questions:
 
-## Development
+```
+User: What are my pending sales orders?
+Agent: [Uses tools to query sale.order model and returns results]
+```
 
-To extend this module with additional functionality:
+### Stateful Context
 
-1. Add new features to `models/letta_provider.py`
-2. Extend message formatting in `models/mail_message.py`
-3. Add any Letta-specific data models if needed
-4. Update tests and documentation
+The agent remembers previous conversations:
+
+```
+Session 1:
+User: My company focuses on solar energy solutions
+Agent: Got it, I'll remember that
+
+Session 2 (days later):
+User: Show me relevant product categories
+Agent: Based on your focus on solar energy solutions, here are...
+```
+
+### Tool Usage
+
+Agents can perform actions:
+
+```
+User: Create a new customer named "Acme Corp" with email acme@example.com
+Agent: [Uses create_record tool] Created customer with ID 123
+```
+
+## Troubleshooting
+
+### Letta server not connecting
+
+Check Docker logs:
+
+```bash
+docker logs letta
+```
+
+Verify server is running:
+
+```bash
+curl http://localhost:8283/v1/health
+```
+
+### Tools not available to agent
+
+1. Verify `llm_mcp_server` module is installed
+2. Check MCP server configuration in Odoo (LLM → Configuration → MCP Server)
+3. Ensure External URL is correctly set to `http://host.docker.internal:8069`
+4. Check that tools are active in LLM → Tools
+
+### Agent not remembering context
+
+- Verify PostgreSQL `pgvector` extension is installed in Letta database
+- Check Letta server logs for memory-related errors
+- Ensure database connection in `.env.letta` is correct
+
+### Streaming not working
+
+- Ensure you're using the forked Letta client (from apexive/letta-python)
+- Check browser console for errors
+- Verify Odoo is in development mode for detailed error logs
+
+## Advanced Topics
+
+### How Memory Works
+
+Letta agents maintain their own conversation history and memory state on the Letta server side:
+
+- **One Agent Per Thread**: Each Odoo thread creates a dedicated Letta agent (stored in `external_id`)
+- **Server-Side Memory**: Agent memory is stored in PostgreSQL with pgvector extension on the Letta server
+- **Only Latest Message Sent**: The integration sends only the latest user message - Letta maintains full conversation context internally
+- **Memory Blocks**: Agents are initialized with default persona and human memory blocks
+
+### Agent Lifecycle
+
+- **Creation**: Automatically created when a new Letta thread is started
+- **Updates**: Agent model and system prompt updated when thread configuration changes
+- **Tool Sync**: Tools automatically synchronized when `tool_ids` changes
+- **Cleanup**: Agent and API keys deleted when thread is deleted or provider changes
+
+### MCP Server Architecture
+
+The integration uses Odoo's MCP server to expose tools to Letta agents:
+
+- API keys generated automatically per user for MCP authentication
+- MCP server registered with Letta on first tool attachment
+- Tools synced bidirectionally (attach new, detach removed)
+
+For detailed technical documentation, see `TECHNICAL_GUIDE.md`.
+
+## Roadmap
+
+Future enhancements planned for this module:
+
+- **Tool Call Visualization**: View tool calls and execution logs in Odoo UI
+- **Memory Management UI**: Configure agent memory blocks (persona, human, etc.) from Odoo
+- **Shared Memory**: Enable memory sharing across multiple threads
+- **Memory Inspector**: Browse and edit agent memory state
+- **Advanced Agent Config**: Fine-tune agent parameters (temperature, context window, etc.) from Odoo
+
+Contributions and feature requests are welcome!
+
+## Links
+
+- [Letta Official Documentation](https://docs.letta.com/)
+- [Letta GitHub Repository](https://github.com/letta-ai/letta)
+- [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
+- [Forked Letta Python Client](https://github.com/apexive/letta-python)
+- [Model Fetching Bug Issue](https://github.com/letta-ai/letta-python/issues/25)
+
+## Support
+
+For issues and questions:
+
+- Check `TECHNICAL_GUIDE.md` for detailed technical documentation
+- Review Letta server logs: `docker logs letta`
+- Check Odoo logs for integration errors

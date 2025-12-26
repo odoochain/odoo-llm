@@ -1,3 +1,15 @@
+18.0.1.2.0 (2025-11-28)
+~~~~~~~~~~~~~~~~~~~~~~~
+
+* [ADD] Added openai_normalize_prepend_messages() for dispatch pattern compliance
+* [IMP] Changed openai_chat to use generic format_messages() and format_tools() dispatch methods
+* [IMP] Improved consistency with base provider dispatch pattern
+
+18.0.1.1.4 (2025-11-17)
+~~~~~~~~~~~~~~~~~~~~~~~
+
+* [FIX] Updated batch job processing to use provider's _determine_model_use() method instead of wizard
+
 18.0.1.1.3 (2025-10-23)
 ~~~~~~~~~~~~~~~~~~~~~~~
 
